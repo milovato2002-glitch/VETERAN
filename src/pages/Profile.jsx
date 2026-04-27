@@ -15,6 +15,7 @@ export default function Profile() {
   const fields = [
     { label: "AGE BRACKET", value: ageBracketLabel(profile.age), key: "age" },
     { label: "RACE EXPERIENCE", value: profile.hasRace === true ? "Raced HYROX" : profile.hasRace === false ? "Not yet" : "—" },
+    { label: "FORMAT", value: profile.format ? formatLabel(profile.format) : "—" },
     { label: "BASELINE", value: baselineLabel(profile) },
     { label: "TRAINING AGE", value: profile.trainingAge ? trainingAgeLabel(profile.trainingAge) : "—" },
     { label: "INJURIES", value: profile.injuries?.length ? profile.injuries.join(", ").toUpperCase() : "NONE" },
@@ -138,6 +139,9 @@ function lifeStageLabel(l) {
 }
 function equipmentLabel(e) {
   return { full: "FULL HYROX GYM", home: "HOME / MINIMAL", run: "RUNNING ONLY" }[e] || e;
+}
+function formatLabel(f) {
+  return { singles: "SINGLES", doubles: "DOUBLES", relay: "RELAY" }[f] || f;
 }
 function limiterLabel(l) {
   return { running: "THE RUNS", strength: "THE STATIONS", compromised: "RUN AFTER STATION" }[l] || l;

@@ -74,11 +74,13 @@ export function generatePlan(profile) {
   };
 }
 
-function buildWeek({ recommendedDays, limiter, injuries = [], age, runKm }) {
+function buildWeek({ recommendedDays, limiter, injuries = [], age, runKm, format, stationStruggle }) {
   const hasKnee = injuries.includes("knee");
   const hasBack = injuries.includes("back");
   const hasShoulder = injuries.includes("shoulder");
   const hasAchilles = injuries.includes("achilles");
+  const isDoubles = format === "doubles";
+  const isRelay = format === "relay";
 
   const lib = {
     mobility: {
@@ -90,8 +92,12 @@ function buildWeek({ recommendedDays, limiter, injuries = [], age, runKm }) {
       title: hasKnee || hasAchilles ? "THRESHOLD ROW/SKI" : "THRESHOLD RUN",
       detail:
         hasKnee || hasAchilles
-          ? "4 × 1000m row @ threshold, 90s rest. 10min easy warmup."
-          : "4 × 800m @ threshold pace, 90s rest. 15min easy warmup first.",
+          ? isDoubles
+            ? "5 × 800m row @ threshold+, 60s rest. 10min easy warmup. Doubles intervals run shorter and harder."
+            : "4 × 1000m row @ threshold, 90s rest. 10min easy warmup."
+          : isDoubles
+            ? "5 × 600m @ threshold+, 60s rest. 15min easy warmup. Shorter, harder — matches doubles run splits."
+            : "4 × 800m @ threshold pace, 90s rest. 15min easy warmup first.",
       tag: "ENGINE",
     },
     longAerobic: {
@@ -108,6 +114,17 @@ function buildWeek({ recommendedDays, limiter, injuries = [], age, runKm }) {
         : "6 × (400m run + 40m lunges). Rest 90s. Builds run-after-station legs.",
       tag: "HYBRID",
     },
+    // Doubles-specific replacement for compromisedRun. Mimics the back-and-forth
+    // of a doubles race: you're cooling from station work, then partner taps
+    // out and you sprint into a run. Different physiological demand than
+    // singles' compromised running.
+    compromisedPacing: {
+      title: "PARTNER-AWARE COMPROMISED PACING",
+      detail: hasKnee
+        ? "8 rounds: 30s ski (hard) + 200m row (race-pace) + 60s rest. Simulates partner hand-offs."
+        : "8 rounds: 30s wall balls (race pace) + 400m run (target split) + 60s rest. Run starts mid-station-fatigue, like a real doubles tag.",
+      tag: "HYBRID",
+    },
     stationCircuit: {
       title: "STATION CIRCUIT",
       detail: hasBack
@@ -115,6 +132,11 @@ function buildWeek({ recommendedDays, limiter, injuries = [], age, runKm }) {
         : "3 rounds: 50 wall balls, 80m sled push, 100m farmers carry, 50 burpee broad jumps. 3min rest between rounds.",
       tag: "STATIONS",
     },
+    // Relay specialist block — leans hard on whichever station the athlete
+    // flagged as their weak point. In a 4-person relay each athlete typically
+    // owns a subset of stations, so we over-train the limiter rather than
+    // generalising.
+    relaySpecialist: relaySpecialistSession(stationStruggle, hasBack, hasShoulder),
     strengthLower: {
       title: hasBack ? "LOWER STRENGTH (BACK-SAFE)" : "POSTERIOR CHAIN STRENGTH",
       detail: hasBack
@@ -141,8 +163,21 @@ function buildWeek({ recommendedDays, limiter, injuries = [], age, runKm }) {
     },
   };
 
+  // For doubles, swap the compromisedRun template entry for the partner-aware
+  // version so any limiter path that surfaces it gets the doubles flavor.
+  if (isDoubles) lib.compromisedRun = lib.compromisedPacing;
+
   let template;
-  if (limiter === "compromised") {
+  if (isDoubles) {
+    // Doubles always gets one compromised-pacing session regardless of limiter
+    // — it's a feature of the format, not a weakness fix.
+    template = [lib.threshold, lib.activeRecovery, lib.compromisedPacing, lib.strengthLower, lib.longAerobic, lib.strengthUpper];
+  } else if (isRelay) {
+    // Relay leans on station specialization. Replace the generic station
+    // circuit with the targeted specialist block, keep one running session,
+    // bias the rest toward strength and station work.
+    template = [lib.relaySpecialist, lib.strengthLower, lib.activeRecovery, lib.threshold, lib.relaySpecialist, lib.strengthUpper];
+  } else if (limiter === "compromised") {
     template = [lib.threshold, lib.activeRecovery, lib.compromisedRun, lib.strengthLower, lib.longAerobic, lib.strengthUpper];
   } else if (limiter === "strength") {
     template = [lib.strengthLower, lib.activeRecovery, lib.threshold, lib.stationCircuit, lib.longAerobic, lib.strengthUpper];
@@ -160,8 +195,67 @@ function buildWeek({ recommendedDays, limiter, injuries = [], age, runKm }) {
   return [lib.mobility, ...active, ...recoveryDays].slice(0, 7);
 }
 
+function relaySpecialistSession(stationStruggle, hasBack, hasShoulder) {
+  const focus = {
+    ski: {
+      title: "SKI SPECIALIST",
+      detail: "5 × 500m ski erg @ race pace, 90s rest. Then 3 × 250m all-out, 2min rest. Own this station for your team.",
+    },
+    sled_push: {
+      title: "SLED PUSH SPECIALIST",
+      detail: "6 × 25m heavy sled push, 90s rest. Then 4 × 50m moderate at race tempo. Drive through the floor.",
+    },
+    sled_pull: {
+      title: "SLED PULL SPECIALIST",
+      detail: "6 × 25m heavy sled pull, 90s rest. Then 4 × 50m at race tempo. Hip hinge, low stance.",
+    },
+    burpees: hasBack
+      ? {
+          title: "BURPEE STAND-IN (BACK-SAFE)",
+          detail: "Step-down burpees, no jump. 8 × 20 reps, 60s rest. Work the bend pattern without spinal load.",
+        }
+      : {
+          title: "BURPEE BROAD JUMP SPECIALIST",
+          detail: "8 × 15 burpee broad jumps, 60s rest. Then 4 × 20m broad jumps for power. Chest-down, full hip extension.",
+        },
+    row: {
+      title: "ROW SPECIALIST",
+      detail: "5 × 500m row @ race pace, 90s rest. Then 3 × 250m all-out, 2min rest. Drive legs first, hands second.",
+    },
+    carry: {
+      title: "FARMERS CARRY SPECIALIST",
+      detail: "6 × 100m heavy carry, 2min rest. Then 4 × 50m at race weight, fast. Grip + trunk endurance.",
+    },
+    lunges: {
+      title: "SANDBAG LUNGE SPECIALIST",
+      detail: "5 × 50m heavy walking lunges, 2min rest. Then 4 × 25m unloaded for speed. Knee tracks toes.",
+    },
+    wall_balls: {
+      title: "WALL BALL SPECIALIST",
+      detail: hasShoulder
+        ? "8 × 25 wall balls @ race-target height, 60s rest. Lighter ball, lower target — no shoulder flare-up."
+        : "10 × 25 wall balls @ race-target height, 60s rest. Then 3 × 30 unbroken. Stand tall, full extension.",
+    },
+    runs: {
+      title: "RELAY RUN-LEG SPECIALIST",
+      detail: "4 × 1km @ goal pace, 2min rest. Each rep simulates your race-day leg. Negative-split the last one.",
+    },
+  }[stationStruggle];
+
+  if (focus) return { ...focus, tag: "STATIONS" };
+
+  // No stationStruggle selected — fall back to a balanced station block.
+  return {
+    title: "RELAY STATION BLOCK",
+    detail: "3 rounds: 40 wall balls, 60m sled push, 80m farmers carry, 30 burpee broad jumps. 2min rest. Find your specialty.",
+    tag: "STATIONS",
+  };
+}
+
 function buildCautions(profile, recommendedDays) {
   const cautions = [];
+  const formatNote = buildFormatNote(profile);
+  if (formatNote) cautions.push(formatNote);
   if (profile.recoveryState === "poor") {
     cautions.push("Recovery markers are low — plan reduced this block. Re-check in 7 days.");
   }
@@ -177,4 +271,30 @@ function buildCautions(profile, recommendedDays) {
     cautions.push("Plan emphasizes strength + power retention. Heavier loads, shorter sessions.");
   }
   return cautions;
+}
+
+function buildFormatNote(profile) {
+  if (profile.format === "doubles") {
+    return "Plan tuned for HYROX Doubles — reduced total volume, higher intensity, partner-aware sessions.";
+  }
+  if (profile.format === "relay") {
+    const struggle = profile.stationStruggle;
+    const focus = struggle && struggle !== "runs" ? ` Extra weight on ${stationLabel(struggle)}.` : "";
+    return `Plan tuned for HYROX Relay — running volume reduced, station specialization prioritized.${focus}`;
+  }
+  return null;
+}
+
+function stationLabel(id) {
+  return {
+    ski: "ski erg",
+    sled_push: "sled push",
+    sled_pull: "sled pull",
+    burpees: "burpee broad jumps",
+    row: "row",
+    carry: "farmers carry",
+    lunges: "sandbag lunges",
+    wall_balls: "wall balls",
+    runs: "the runs",
+  }[id] || id;
 }
